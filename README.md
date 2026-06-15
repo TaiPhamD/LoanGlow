@@ -4,7 +4,7 @@ LoanGlow is a mortgage calculator for informational estimates only.
 
 ## Support
 
-For help, questions, or feedback, contact the developer through the App Store listing.
+For help, questions, or feedback create a github issue.
 
 ## Privacy
 
