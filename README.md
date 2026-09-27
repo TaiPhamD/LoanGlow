@@ -34,6 +34,31 @@ npx -p node@22 npm run typecheck
 npx -p node@22 npm run export:web
 ```
 
+## Advanced loan options
+
+The expandable loan panel keeps 15/20/30-year shortcuts and supports custom whole
+terms from 1–50 years. Custom edits take effect only after Apply; invalid edits
+leave the current calculation unchanged. Fixed-rate is the default, including
+when restoring older saved inputs. Loan type, repayment term, ARM period, and
+scenario rate stay on-device with the existing calculator inputs.
+
+For adjustable loans, choose 5/1, 7/1, or 10/1 independently of the repayment term.
+The repayment term must extend beyond the initial fixed-rate period. The summary
+explicitly labels the initial monthly payment and keeps the ARM badge visible
+when Advanced is collapsed. The interest field is a nominal interest rate, not
+an APR including lender fees.
+
+The optional first-adjustment scenario amortizes the original loan through the
+initial fixed period, then calculates principal and interest on the remaining
+balance over the remaining term at a user-entered hypothetical rate. It is not
+a rate forecast, lender offer, maximum payment, or a simulation of later resets.
+It excludes escrow, PMI, HOA, prepayments, and lender-specific index/margin/caps.
+ARM context: https://www.consumerfinance.gov/documents/5984/cfpb_charm_booklet.pdf
+
+Run `npm run verify:loans` for calculation/validation checks and, with the web
+preview running, `npm run verify:loans-ui` for interaction and persistence checks.
+Set `TEST_URL` to exercise the exported production web build instead.
+
 ## Offline ZIP and property-tax estimates
 
 Every input selects its value on focus for quick replacement. ZIP lookup accepts

@@ -1,6 +1,6 @@
 {
   "name": "loanglow",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "main": "index.ts",
   "dependencies": {
     "@expo/metro-runtime": "~56.0.15",
@@ -31,6 +31,8 @@
     "export:web": "expo export --platform web --output-dir dist-web",
     "verify:web": "node verify-web.cjs",
     "verify:inputs": "node verify-inputs.cjs",
+    "verify:loans": "node verify-loans.cjs",
+    "verify:loans-ui": "node verify-loans-ui.cjs",
     "verify:tax": "python3 scripts/test_build_tax_data.py && node verify-tax.cjs",
     "verify:tax-ui": "node verify-tax-ui.cjs",
     "data:tax": "python3 scripts/build_tax_data.py",

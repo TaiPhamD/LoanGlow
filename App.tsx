@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getTaxEstimate, taxDataInfo } from './tax-estimates';
+import AdvancedLoanOptions from './AdvancedLoanOptions';
+import { ArmPeriod, LoanType, monthlyPrincipalAndInterest, parseLoanYears } from './loan-options';
 import {
   KeyboardAvoidingView,
   Linking,
@@ -23,6 +25,9 @@ const defaultFormValues = {
   downPayment: '90000',
   interestRate: '6.5',
   termYears: 30,
+  loanType: 'fixed' as LoanType,
+  armPeriod: 7 as ArmPeriod,
+  scenarioRate: '',
   zip: '78704',
   manualTaxRate: '',
   useManualTax: false,
@@ -45,14 +50,6 @@ function numberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-
-function monthlyPrincipalAndInterest(loanAmount: number, annualRatePercent: number, years: number) {
-  const months = years * 12;
-  const monthlyRate = annualRatePercent / 100 / 12;
-  if (loanAmount <= 0 || months <= 0) return 0;
-  if (monthlyRate === 0) return loanAmount / months;
-  return loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
-}
 
 
 function InputCard({ label, value, onChangeText, suffix, keyboardType = 'decimal-pad' }: {
@@ -98,6 +95,9 @@ export default function App() {
   const [downPayment, setDownPayment] = useState(defaultFormValues.downPayment);
   const [interestRate, setInterestRate] = useState(defaultFormValues.interestRate);
   const [termYears, setTermYears] = useState(defaultFormValues.termYears);
+  const [loanType, setLoanType] = useState<LoanType>(defaultFormValues.loanType);
+  const [armPeriod, setArmPeriod] = useState<ArmPeriod>(defaultFormValues.armPeriod);
+  const [scenarioRate, setScenarioRate] = useState(defaultFormValues.scenarioRate);
   const [zip, setZip] = useState(defaultFormValues.zip);
   const [manualTaxRate, setManualTaxRate] = useState(defaultFormValues.manualTaxRate);
   const [useManualTax, setUseManualTax] = useState(defaultFormValues.useManualTax);
@@ -116,7 +116,12 @@ export default function App() {
         if (typeof parsed.homePrice === 'string') setHomePrice(parsed.homePrice);
         if (typeof parsed.downPayment === 'string') setDownPayment(parsed.downPayment);
         if (typeof parsed.interestRate === 'string') setInterestRate(parsed.interestRate);
-        if ([15, 20, 30].includes(Number(parsed.termYears))) setTermYears(Number(parsed.termYears));
+        const savedTerm = parseLoanYears(String(parsed.termYears)) ?? defaultFormValues.termYears;
+        const savedPeriod = [5, 7, 10].includes(Number(parsed.armPeriod)) ? Number(parsed.armPeriod) as ArmPeriod : defaultFormValues.armPeriod;
+        setTermYears(savedTerm);
+        setArmPeriod(savedPeriod);
+        setLoanType(parsed.loanType === 'arm' && savedTerm > savedPeriod ? 'arm' : 'fixed');
+        if (typeof parsed.scenarioRate === 'string') setScenarioRate(parsed.scenarioRate);
         if (typeof parsed.zip === 'string') setZip(parsed.zip);
         if (typeof parsed.manualTaxRate === 'string') setManualTaxRate(parsed.manualTaxRate);
         if (typeof parsed.useManualTax === 'boolean') setUseManualTax(parsed.useManualTax);
@@ -143,6 +148,9 @@ export default function App() {
         downPayment,
         interestRate,
         termYears,
+        loanType,
+        armPeriod,
+        scenarioRate,
         zip,
         manualTaxRate,
         useManualTax,
@@ -154,7 +162,7 @@ export default function App() {
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [homePrice, downPayment, interestRate, termYears, zip, manualTaxRate, useManualTax, insuranceMonthly, hoaMonthly]);
+  }, [homePrice, downPayment, interestRate, termYears, loanType, armPeriod, scenarioRate, zip, manualTaxRate, useManualTax, insuranceMonthly, hoaMonthly]);
 
   const results = useMemo(() => {
     const price = numberInput(homePrice);
@@ -170,10 +178,7 @@ export default function App() {
     const downPercent = price > 0 ? (down / price) * 100 : 0;
     const pmi = downPercent < 20 ? (loan * 0.006) / 12 : 0;
     const totalMonthly = principalInterest + monthlyTax + insurance + hoa + pmi;
-    const totalPaid = principalInterest * termYears * 12;
-    const totalInterest = Math.max(totalPaid - loan, 0);
-
-    return { price, down, loan, rate, insurance, hoa, taxEstimate, principalInterest, annualTax, monthlyTax, pmi, totalMonthly, totalInterest, downPercent };
+    return { price, down, loan, rate, insurance, hoa, taxEstimate, principalInterest, annualTax, monthlyTax, pmi, totalMonthly, downPercent };
   }, [homePrice, downPayment, interestRate, termYears, zip, manualTaxRate, useManualTax, insuranceMonthly, hoaMonthly]);
 
   const piShare = results.totalMonthly > 0 ? `${Math.round((results.principalInterest / results.totalMonthly) * 100)}%` : '0%';
@@ -199,30 +204,30 @@ export default function App() {
                 <View style={styles.gridCompact}>
                   <InputCard label="Home price" value={homePrice} onChangeText={setHomePrice} suffix="$" />
                   <InputCard label="Down payment" value={downPayment} onChangeText={setDownPayment} suffix="$" />
-                  <InputCard label="Interest rate" value={interestRate} onChangeText={setInterestRate} suffix="%" />
+                  <InputCard label={loanType === 'arm' ? 'Initial interest rate' : 'Interest rate'} value={interestRate} onChangeText={setInterestRate} suffix="%" />
                   <InputCard label="ZIP code" value={zip} onChangeText={setZip} keyboardType="number-pad" />
                   <InputCard label="Insurance" value={insuranceMonthly} onChangeText={setInsuranceMonthly} suffix="$ / mo" />
                   <InputCard label="HOA" value={hoaMonthly} onChangeText={setHoaMonthly} suffix="$ / mo" />
                 </View>
-                <View style={styles.termSwitch}>
-                  {[15, 20, 30].map((term) => (
-                    <TouchableOpacity key={term} onPress={() => setTermYears(term)} style={[styles.termButton, termYears === term && styles.termButtonActive]}>
-                      <Text style={[styles.termText, termYears === term && styles.termTextActive]}>{term} yr</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <AdvancedLoanOptions termYears={termYears} onTermChange={setTermYears} loanType={loanType} onTypeChange={setLoanType} armPeriod={armPeriod} onPeriodChange={setArmPeriod} scenarioRate={scenarioRate} onScenarioRateChange={setScenarioRate} loan={results.loan} initialRate={results.rate} />
               </View>
             </View>
 
             <View style={[styles.rightPane, isWideLayout && styles.rightPaneWide]}>
               <View style={[styles.summaryCard, isWideLayout && styles.summaryCardWide]}>
-                <Text style={styles.summaryLabel}>Estimated monthly payment</Text>
+                <Text style={styles.summaryLabel}>{loanType === 'arm' ? 'Initial estimated monthly payment' : 'Estimated monthly payment'}</Text>
                 <Text style={[styles.summaryAmount, isWideLayout && styles.summaryAmountWide]}>{currency(results.totalMonthly)}</Text>
                 <View style={styles.pillRow}>
                   <View style={styles.pill}><Text style={styles.pillText}>{currency(results.loan)} loan</Text></View>
-                  <View style={styles.pill}><Text style={styles.pillText}>{results.rate.toFixed(2)}% APR</Text></View>
+                  <View style={styles.pill}><Text style={styles.pillText}>{results.rate.toFixed(2)}% {loanType === 'arm' ? 'initial rate' : 'interest'}</Text></View>
                   <View style={styles.pill}><Text style={styles.pillText}>{termYears} years</Text></View>
                 </View>
+                {loanType === 'arm' ? (
+                  <View style={styles.armNotice}>
+                    <Text style={styles.armNoticeTitle}>{armPeriod}/1 ARM · {termYears}-year term</Text>
+                    <Text style={styles.armNoticeText}>Initial rate fixed for {armPeriod} years, then adjusts annually. Future payments may change; taxes and insurance can change at any time.</Text>
+                  </View>
+                ) : null}
                 <View style={styles.barTrack}>
                   <View style={[styles.barSegment, styles.barPi, { flex: results.principalInterest || 1 }]} />
                   <View style={[styles.barSegment, styles.barTax, { flex: results.monthlyTax || 1 }]} />
@@ -306,6 +311,9 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  armNotice: { borderTopWidth: 1, borderTopColor: '#263B53', marginTop: 14, paddingTop: 12 },
+  armNoticeTitle: { color: '#7DD3FC', fontSize: 13, fontWeight: '800' },
+  armNoticeText: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 4 },
   extendedZipInput: { fontSize: 16 },
   sourceLink: { color: '#67E8F9', fontSize: 12, marginTop: 10, textDecorationLine: 'underline' },
   safeArea: { flex: 1, backgroundColor: '#020617' },

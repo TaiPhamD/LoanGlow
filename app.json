@@ -2,14 +2,14 @@
   "expo": {
     "name": "LoanGlow",
     "slug": "loanglow",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "default",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.rush.loanglow",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "appleTeamId": "FW8ZSW9Z2K",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
