@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { getTaxEstimate, taxDataInfo } from './tax-estimates';
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -13,15 +15,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-
-type TaxEstimateSource = 'Local ZIP estimate' | 'State average' | 'National fallback' | 'Manual override';
-
-type TaxEstimate = {
-  rate: number;
-  source: TaxEstimateSource;
-  label: string;
-  confidence: 'Higher' | 'Medium' | 'Low' | 'Custom';
-};
 
 const storageKey = 'loanglow:last-inputs:v1';
 
@@ -35,32 +28,6 @@ const defaultFormValues = {
   useManualTax: false,
   insuranceMonthly: '175',
   hoaMonthly: '0',
-};
-
-const nationalAverageTaxRate = 1.1;
-
-const knownZipEffectiveTaxRates: Record<string, { rate: number; label: string }> = {
-  '90210': { rate: 0.5, label: 'Beverly Hills, CA' },
-  '10001': { rate: 1.22, label: 'New York, NY' },
-  '60601': { rate: 1.76, label: 'Chicago, IL' },
-  '78704': { rate: 1.35, label: 'Austin, TX' },
-  '33139': { rate: 0.82, label: 'Miami Beach, FL' },
-  '98101': { rate: 0.92, label: 'Seattle, WA' },
-  '97229': { rate: 0.96, label: 'Portland / Bethany, OR' },
-  '94105': { rate: 0.69, label: 'San Francisco, CA' },
-  '30309': { rate: 0.92, label: 'Atlanta, GA' },
-  '85004': { rate: 0.63, label: 'Phoenix, AZ' },
-  '80202': { rate: 0.51, label: 'Denver, CO' },
-};
-
-const stateTaxRates: Record<string, number> = {
-  AL: 0.41, AK: 1.19, AZ: 0.63, AR: 0.62, CA: 0.69, CO: 0.51, CT: 1.78, DE: 0.57,
-  DC: 0.56, FL: 0.76, GA: 0.92, HI: 0.32, ID: 0.69, IL: 1.88, IN: 0.84, IA: 1.43,
-  KS: 1.33, KY: 0.85, LA: 0.56, ME: 1.24, MD: 1.07, MA: 1.04, MI: 1.38, MN: 1.11,
-  MS: 0.67, MO: 0.97, MT: 0.83, NE: 1.54, NV: 0.56, NH: 1.89, NJ: 2.04, NM: 0.73,
-  NY: 1.85, NC: 0.82, ND: 0.97, OH: 1.52, OK: 0.88, OR: 0.87, PA: 1.34, RI: 1.43,
-  SC: 0.57, SD: 1.17, TN: 0.67, TX: 1.35, UT: 0.55, VT: 1.73, VA: 0.82, WA: 0.92,
-  WV: 0.59, WI: 1.53, WY: 0.56,
 };
 
 function currency(value: number) {
@@ -78,9 +45,6 @@ function numberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
 
 function monthlyPrincipalAndInterest(loanAmount: number, annualRatePercent: number, years: number) {
   const months = years * 12;
@@ -90,44 +54,6 @@ function monthlyPrincipalAndInterest(loanAmount: number, annualRatePercent: numb
   return loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
 }
 
-function inferStateFromZip(zip: string): string | null {
-  const prefix = Number(zip.slice(0, 3));
-  if (!Number.isFinite(prefix)) return null;
-  const ranges: Array<[number, number, string]> = [
-    [10, 27, 'MA'], [28, 29, 'RI'], [30, 38, 'NH'], [39, 49, 'ME'], [50, 59, 'VT'], [60, 99, 'CT'],
-    [100, 149, 'NY'], [150, 196, 'PA'], [197, 199, 'DE'], [200, 205, 'DC'], [206, 219, 'MD'], [220, 246, 'VA'],
-    [247, 268, 'WV'], [270, 289, 'NC'], [290, 299, 'SC'], [300, 319, 'GA'], [320, 349, 'FL'], [350, 369, 'AL'],
-    [370, 385, 'TN'], [386, 397, 'MS'], [400, 427, 'KY'], [430, 459, 'OH'], [460, 479, 'IN'], [480, 499, 'MI'],
-    [500, 528, 'IA'], [530, 549, 'WI'], [550, 567, 'MN'], [570, 577, 'SD'], [580, 588, 'ND'], [590, 599, 'MT'],
-    [600, 629, 'IL'], [630, 658, 'MO'], [660, 679, 'KS'], [680, 693, 'NE'], [700, 714, 'LA'], [716, 729, 'AR'],
-    [730, 749, 'OK'], [750, 799, 'TX'], [800, 816, 'CO'], [820, 831, 'WY'], [832, 838, 'ID'], [840, 847, 'UT'],
-    [850, 865, 'AZ'], [870, 884, 'NM'], [889, 898, 'NV'], [900, 961, 'CA'], [967, 968, 'HI'], [970, 979, 'OR'],
-    [980, 994, 'WA'], [995, 999, 'AK'],
-  ];
-  return ranges.find(([start, end]) => prefix >= start && prefix <= end)?.[2] ?? null;
-}
-
-function getTaxEstimate(zip: string, manualRate: string, useManual: boolean): TaxEstimate {
-  const manual = numberInput(manualRate);
-  if (useManual && manual > 0) {
-    return { rate: clamp(manual, 0, 5), source: 'Manual override', label: 'Your custom tax rate', confidence: 'Custom' };
-  }
-
-  const cleanZip = zip.replace(/[^0-9]/g, '').slice(0, 5);
-  if (cleanZip.length === 5 && knownZipEffectiveTaxRates[cleanZip]) {
-    const match = knownZipEffectiveTaxRates[cleanZip];
-    return { rate: match.rate, source: 'Local ZIP estimate', label: match.label, confidence: 'Higher' };
-  }
-
-  if (cleanZip.length >= 3) {
-    const state = inferStateFromZip(cleanZip);
-    if (state && stateTaxRates[state]) {
-      return { rate: stateTaxRates[state], source: 'State average', label: `${state} estimated average`, confidence: 'Medium' };
-    }
-  }
-
-  return { rate: nationalAverageTaxRate, source: 'National fallback', label: 'U.S. rough estimate', confidence: 'Low' };
-}
 
 function InputCard({ label, value, onChangeText, suffix, keyboardType = 'decimal-pad' }: {
   label: string;
@@ -141,11 +67,13 @@ function InputCard({ label, value, onChangeText, suffix, keyboardType = 'decimal
       <Text style={styles.inputLabel}>{label}</Text>
       <View style={styles.inputRow}>
         <TextInput
+          accessibilityLabel={label}
+          selectTextOnFocus
           value={value}
           onChangeText={onChangeText}
           keyboardType={keyboardType}
           placeholderTextColor="#64748B"
-          style={styles.input}
+          style={[styles.input, keyboardType === 'number-pad' && value.length > 5 && styles.extendedZipInput]}
         />
         {suffix ? <Text style={styles.inputSuffix}>{suffix}</Text> : null}
       </View>
@@ -189,7 +117,7 @@ export default function App() {
         if (typeof parsed.downPayment === 'string') setDownPayment(parsed.downPayment);
         if (typeof parsed.interestRate === 'string') setInterestRate(parsed.interestRate);
         if ([15, 20, 30].includes(Number(parsed.termYears))) setTermYears(Number(parsed.termYears));
-        if (typeof parsed.zip === 'string') setZip(parsed.zip.replace(/[^0-9]/g, '').slice(0, 5));
+        if (typeof parsed.zip === 'string') setZip(parsed.zip);
         if (typeof parsed.manualTaxRate === 'string') setManualTaxRate(parsed.manualTaxRate);
         if (typeof parsed.useManualTax === 'boolean') setUseManualTax(parsed.useManualTax);
         if (typeof parsed.insuranceMonthly === 'string') setInsuranceMonthly(parsed.insuranceMonthly);
@@ -272,7 +200,7 @@ export default function App() {
                   <InputCard label="Home price" value={homePrice} onChangeText={setHomePrice} suffix="$" />
                   <InputCard label="Down payment" value={downPayment} onChangeText={setDownPayment} suffix="$" />
                   <InputCard label="Interest rate" value={interestRate} onChangeText={setInterestRate} suffix="%" />
-                  <InputCard label="ZIP code" value={zip} onChangeText={(text) => setZip(text.replace(/[^0-9]/g, '').slice(0, 5))} suffix="ZIP" keyboardType="number-pad" />
+                  <InputCard label="ZIP code" value={zip} onChangeText={setZip} keyboardType="number-pad" />
                   <InputCard label="Insurance" value={insuranceMonthly} onChangeText={setInsuranceMonthly} suffix="$ / mo" />
                   <InputCard label="HOA" value={hoaMonthly} onChangeText={setHoaMonthly} suffix="$ / mo" />
                 </View>
@@ -326,6 +254,7 @@ export default function App() {
                 <View style={styles.accordionTextWrap}>
                   <Text style={styles.accordionTitle}>Property tax details</Text>
                   <Text style={styles.accordionSubtitle}>{results.taxEstimate.rate.toFixed(2)}% · {results.taxEstimate.label}</Text>
+                  <Text style={styles.accordionSubtitle}>{results.taxEstimate.source}</Text>
                 </View>
                 <View style={styles.accordionRight}>
                   <Text style={styles.miniTax}>{currency(results.monthlyTax)}/mo</Text>
@@ -342,6 +271,7 @@ export default function App() {
                   </View>
                   <Text style={styles.taxRate}>{results.taxEstimate.rate.toFixed(2)}%</Text>
                   <Text style={styles.taxLabel}>{results.taxEstimate.label}</Text>
+                  <Text style={styles.disclaimer}>{results.taxEstimate.note}</Text>
                   <View style={styles.taxNumbers}>
                     <View>
                       <Text style={styles.miniLabel}>Annual tax</Text>
@@ -360,7 +290,10 @@ export default function App() {
                   {useManualTax ? (
                     <InputCard label="Manual annual tax rate" value={manualTaxRate} onChangeText={setManualTaxRate} suffix="%" />
                   ) : null}
-                  <Text style={styles.disclaimer}>ZIPs do not map perfectly to tax districts. This app uses built-in public-style estimate tables and always lets the buyer override the number.</Text>
+                  <Text style={styles.disclaimer}>Offline data: U.S. Census ACS {taxDataInfo.period}. ZIP areas are not tax districts. This ratio of survey medians is a planning estimate, not a quoted tax rate. Exemptions, reassessments and local levies can change your actual bill. Verify with the assessor or enter your own rate.</Text>
+                  <Text style={styles.disclaimer}>{taxDataInfo.coverage.usableLocalEstimates.toLocaleString()} usable local estimates · {taxDataInfo.coverage.postalCodes.toLocaleString()} postal codes in directory. Missing or unreliable local data uses a labeled fallback.</Text>
+                  <Text accessibilityRole="link" onPress={() => Linking.openURL('https://www.census.gov/programs-surveys/acs/data/summary-file.html')} style={styles.sourceLink}>Source: U.S. Census Bureau ACS</Text>
+                  <Text accessibilityRole="link" onPress={() => Linking.openURL('https://www.geonames.org/')} style={styles.sourceLink}>Postal directory: GeoNames · CC BY 4.0</Text>
                 </View>
               ) : null}
             </View>
@@ -373,6 +306,8 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  extendedZipInput: { fontSize: 16 },
+  sourceLink: { color: '#67E8F9', fontSize: 12, marginTop: 10, textDecorationLine: 'underline' },
   safeArea: { flex: 1, backgroundColor: '#020617' },
   keyboardView: { flex: 1 },
   container: { padding: 16, paddingBottom: 32, maxWidth: 980, width: '100%', alignSelf: 'center' },

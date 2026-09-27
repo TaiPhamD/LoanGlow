@@ -42,6 +42,10 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# generated native folders
-/ios
+# Android remains generated; the iOS Xcode project is checked in.
 /android
+/build/
+*.xcarchive
+
+# Offline data build caches
+__pycache__/

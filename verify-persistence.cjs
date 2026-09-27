@@ -35,10 +35,10 @@ const { chromium } = require('@playwright/test');
     values[4] === '225' &&
     values[5] === '75' &&
     body.includes('15 years') &&
-    body.includes('Portland / Bethany, OR') &&
+    body.includes('Portland, OR') &&
     errors.length === 0;
 
-  console.log(JSON.stringify({ ok, values, has15Years: body.includes('15 years'), hasPortlandZip: body.includes('Portland / Bethany, OR'), errors }, null, 2));
+  console.log(JSON.stringify({ ok, values, has15Years: body.includes('15 years'), hasPortlandZip: body.includes('Portland, OR'), errors }, null, 2));
   if (!ok) process.exit(1);
   await browser.close();
 })();
