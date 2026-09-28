@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { ArmPeriod, armScenario, LoanType, parseLoanYears } from './loan-options';
+import { AccessibilityInfo, Animated, Keyboard, LayoutAnimation, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ArmPeriod, LoanType, parseLoanYears } from './loan-options';
 
 type Props = {
   termYears: number;
@@ -11,14 +11,14 @@ type Props = {
   onPeriodChange: (years: ArmPeriod) => void;
   scenarioRate: string;
   onScenarioRateChange: (rate: string) => void;
-  loan: number;
-  initialRate: number;
+  interestRate: string;
+  onInterestRateChange: (rate: string) => void;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 };
-const money = (amount: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
 
 export default function AdvancedLoanOptions(props: Props) {
-  const { termYears, onTermChange, loanType, onTypeChange, armPeriod, onPeriodChange, scenarioRate, onScenarioRateChange, loan, initialRate } = props;
-  const [expanded, setExpanded] = useState(false);
+  const { termYears, onTermChange, loanType, onTypeChange, armPeriod, onPeriodChange, scenarioRate, onScenarioRateChange, interestRate, onInterestRateChange, expanded, onExpandedChange: setExpanded } = props;
   const [custom, setCustom] = useState(![15, 20, 30].includes(termYears));
   const [draft, setDraft] = useState(String(termYears));
   const [error, setError] = useState('');
@@ -62,7 +62,7 @@ export default function AdvancedLoanOptions(props: Props) {
     setError('');
     onTermChange(years);
   };
-  const scenario = armScenario(loan, initialRate, termYears, armPeriod, scenarioRate);
+
   const chip = (label: string, selected: boolean, onPress: () => void, accessibilityLabel = label, disabled = false) => (
     <TouchableOpacity key={label} accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected, disabled }} {...(Platform.OS === 'web' ? { 'aria-pressed': selected } : {})} disabled={disabled} onPress={onPress} style={[styles.chip, selected && styles.chipSelected, disabled && styles.disabled]}>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
@@ -70,20 +70,31 @@ export default function AdvancedLoanOptions(props: Props) {
   );
   return (
     <View>
-      <View style={styles.quickTerms}>
+      {!expanded && <View style={styles.quickTerms}>
         {[15, 20, 30].map(years => chip(`${years} yr`, !custom && termYears === years, () => { setError(''); onTermChange(years); setCustom(false); }))}
-        {chip('Custom', custom, () => { setExpanded(true); setCustom(true); setDraft(String(termYears)); }, 'Custom term')}
-      </View>
+      </View>}
       <View style={[styles.card, expanded && styles.cardExpanded]}>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Advanced loan options" aria-expanded={expanded} accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={styles.header}>
+        <TouchableOpacity testID="loan-mode-switch" accessibilityRole="button" accessibilityLabel={expanded ? 'Back to basic' : 'Advanced loan options'} aria-expanded={expanded} accessibilityState={{ expanded }} onPress={() => {
+          Keyboard.dismiss();
+          if (Platform.OS === 'ios' && !reduceMotion.current) {
+            LayoutAnimation.configureNext({ ...LayoutAnimation.Presets.easeInEaseOut, duration: 180 });
+          }
+          setError('');
+          setExpanded(!expanded);
+        }} style={styles.header}>
           <View style={styles.heading}>
-            <Text style={styles.title}>Advanced loan options</Text>
-            <Text style={styles.subtitle}>{termYears}-year {loanType === 'arm' ? `${armPeriod}/1 ARM` : 'fixed'} · {expanded ? 'Tailor your loan' : 'Tap to customize'}</Text>
+            <Text style={styles.title}>{expanded ? 'Advanced mode' : 'Advanced loan options'}</Text>
+            <Text style={styles.subtitle}>{expanded ? 'Back to basic · Your advanced settings are saved' : 'Custom terms, ARM and rate scenarios'}</Text>
           </View>
-          <Text style={styles.chevron}>{expanded ? '−' : '+'}</Text>
+          <Text style={styles.chevron}>{expanded ? '←' : '→'}</Text>
         </TouchableOpacity>
         {expanded && (
-          <Animated.View style={[styles.body, { opacity: fade }]}>
+          <Animated.View testID="advanced-inputs" style={[styles.body, { opacity: fade }]}>
+            <Text style={styles.label}>Repayment term</Text>
+            <View style={styles.chips}>
+              {[15, 20, 30].map(years => chip(`${years} yr`, !custom && termYears === years, () => { setError(''); onTermChange(years); setCustom(false); }))}
+              {chip('Custom', custom, () => { setCustom(true); setDraft(String(termYears)); }, 'Custom term')}
+            </View>
             <Text style={styles.label}>Loan type</Text>
             <View style={styles.chips}>
               {chip('Fixed rate', loanType === 'fixed', () => chooseType('fixed'))}
@@ -102,6 +113,14 @@ export default function AdvancedLoanOptions(props: Props) {
                 <Text style={styles.helper}>1–50 whole years · Applies when you tap Apply</Text>
               </View>
             )}
+            <View>
+              <Text style={styles.label}>Interest rate</Text>
+              <View style={styles.inputBox}>
+                <TextInput accessibilityLabel="Interest rate" value={interestRate} onChangeText={onInterestRateChange} keyboardType="decimal-pad" selectTextOnFocus style={styles.input} />
+                <Text style={styles.suffix}>%</Text>
+              </View>
+              {loanType === 'arm' ? <Text style={styles.helper}>Applies for the first {armPeriod} years.</Text> : null}
+            </View>
             {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             {loanType === 'arm' ? (
               <View style={styles.armSection}>
@@ -125,12 +144,7 @@ export default function AdvancedLoanOptions(props: Props) {
                       <TextInput accessibilityLabel="Hypothetical adjusted rate" value={scenarioRate} onChangeText={onScenarioRateChange} keyboardType="decimal-pad" selectTextOnFocus placeholder="Enter a rate" placeholderTextColor="#64748B" style={styles.input} />
                       <Text style={styles.suffix}>%</Text>
                     </View>
-                    {scenario ? <View style={styles.scenarioResult}>
-                      <Text style={styles.helper}>Hypothetical P&amp;I at month {scenario.month}</Text>
-                      <Text style={styles.scenarioPayment}>{money(scenario.payment)}<Text style={styles.suffix}> / mo</Text></Text>
-                      <Text style={styles.helper}>{money(scenario.balance)} remaining · {termYears - armPeriod} years left</Text>
-                    </View> : <Text style={styles.helper}>Enter a rate from 0% to 100% to explore the first adjustment.</Text>}
-                    <Text style={styles.caution}>Not a forecast or a maximum payment. Excludes taxes, insurance, PMI and HOA. Assumes scheduled payments only; lender index, margin, caps and later resets are not modeled.</Text>
+                    <Text style={styles.helper}>Enter 0–100%. Compare the result in your monthly payment summary.</Text>
                   </View>
                 )}
               </View>
@@ -177,7 +191,5 @@ const styles = StyleSheet.create({
   scenarioToggle: { marginTop: 14, borderTopWidth: 1, borderTopColor: '#26324A', paddingTop: 12, minHeight: 44, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 6 },
   scenarioTitle: { color: '#C4B5FD', fontSize: 13, fontWeight: '700', flex: 1 },
   scenario: { marginTop: 12 },
-  scenarioResult: { marginTop: 12, borderRadius: 14, padding: 12, backgroundColor: '#1E1B36' },
-  scenarioPayment: { color: '#EDE9FE', fontSize: 28, fontWeight: '900', marginTop: 4 },
-  caution: { color: '#94A3B8', fontSize: 11, lineHeight: 17, marginTop: 12 },
+
 });

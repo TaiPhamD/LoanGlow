@@ -45,14 +45,27 @@ scenario rate stay on-device with the existing calculator inputs.
 For adjustable loans, choose 5/1, 7/1, or 10/1 independently of the repayment term.
 The repayment term must extend beyond the initial fixed-rate period. The summary
 explicitly labels the initial monthly payment and keeps the ARM badge visible
-when Advanced is collapsed. The interest field is a nominal interest rate, not
+while Advanced is active. The interest field is a nominal interest rate, not
 an APR including lender fees.
 
 The optional first-adjustment scenario amortizes the original loan through the
 initial fixed period, then calculates principal and interest on the remaining
 balance over the remaining term at a user-entered hypothetical rate. It is not
 a rate forecast, lender offer, maximum payment, or a simulation of later resets.
-It excludes escrow, PMI, HOA, prepayments, and lender-specific index/margin/caps.
+The unified payment summary compares the initial total with the hypothetical
+reset total. For comparison only, the reset total holds today's tax, insurance,
+PMI and HOA constant; these are not predictions of future costs. The reset's
+principal-and-interest amount remains separately identified. Prepayments and
+lender-specific index/margin/caps are not modeled.
+
+Each launch starts in Basic: the original Interest rate field and 15/20/30-year
+presets. Tapping Advanced explicitly activates the advanced calculator and
+replaces the basic rate/term controls. Back to basic restores the basic fixed-rate
+calculation, without leaving hidden ARM settings active. Advanced terms and ARM
+choices are retained separately, so changing a basic preset does not overwrite
+them. On first entry, Advanced inherits the basic term; later entries restore
+its saved choices. The shared interest rate is labeled consistently and is
+never duplicated. iOS layout changes animate with Reduce Motion respected.
 ARM context: https://www.consumerfinance.gov/documents/5984/cfpb_charm_booklet.pdf
 
 Run `npm run verify:loans` for calculation/validation checks and, with the web
@@ -159,6 +172,8 @@ and the Xcode target's `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` settings.
 The app's Info.plist references the Xcode settings. `ios:check` reads the actual
 Apple app/build history before an archive; the archive's signed identity must
 match the requested version/build. No build-number auto-increment occurs at upload.
+Start each new marketing version at build 1; increment the build number only for
+subsequent builds of that same version. Check Apple for an existing exact match.
 
 ```bash
 npm run typecheck

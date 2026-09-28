@@ -3,7 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getTaxEstimate, taxDataInfo } from './tax-estimates';
 import AdvancedLoanOptions from './AdvancedLoanOptions';
-import { ArmPeriod, LoanType, monthlyPrincipalAndInterest, parseLoanYears } from './loan-options';
+import { ArmPeriod, armScenario, LoanType, monthlyPrincipalAndInterest, parseLoanYears } from './loan-options';
 import {
   KeyboardAvoidingView,
   Linking,
@@ -25,6 +25,8 @@ const defaultFormValues = {
   downPayment: '90000',
   interestRate: '6.5',
   termYears: 30,
+  basicTermYears: 30,
+  advancedConfigured: false,
   loanType: 'fixed' as LoanType,
   armPeriod: 7 as ArmPeriod,
   scenarioRate: '',
@@ -94,10 +96,27 @@ export default function App() {
   const [homePrice, setHomePrice] = useState(defaultFormValues.homePrice);
   const [downPayment, setDownPayment] = useState(defaultFormValues.downPayment);
   const [interestRate, setInterestRate] = useState(defaultFormValues.interestRate);
-  const [termYears, setTermYears] = useState(defaultFormValues.termYears);
-  const [loanType, setLoanType] = useState<LoanType>(defaultFormValues.loanType);
+  const [advancedTermYears, setAdvancedTermYears] = useState(defaultFormValues.termYears);
+  const [basicTermYears, setBasicTermYears] = useState(defaultFormValues.basicTermYears);
+  const [advancedLoanType, setLoanType] = useState<LoanType>(defaultFormValues.loanType);
   const [armPeriod, setArmPeriod] = useState<ArmPeriod>(defaultFormValues.armPeriod);
   const [scenarioRate, setScenarioRate] = useState(defaultFormValues.scenarioRate);
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [advancedConfigured, setAdvancedConfigured] = useState(false);
+  const changeLoanMode = (advanced: boolean) => {
+    if (advanced) {
+      if (!advancedConfigured) setAdvancedTermYears(basicTermYears);
+      setAdvancedConfigured(true);
+    }
+    setAdvancedExpanded(advanced);
+  };
+  // Each launch starts basic. Saved advanced choices activate only on explicit entry.
+  const termYears = advancedExpanded ? advancedTermYears : basicTermYears;
+  const loanType = advancedExpanded ? advancedLoanType : 'fixed';
+  const setTermYears = (years: number) => {
+    if (advancedExpanded) setAdvancedTermYears(years);
+    else setBasicTermYears(years);
+  };
   const [zip, setZip] = useState(defaultFormValues.zip);
   const [manualTaxRate, setManualTaxRate] = useState(defaultFormValues.manualTaxRate);
   const [useManualTax, setUseManualTax] = useState(defaultFormValues.useManualTax);
@@ -118,7 +137,10 @@ export default function App() {
         if (typeof parsed.interestRate === 'string') setInterestRate(parsed.interestRate);
         const savedTerm = parseLoanYears(String(parsed.termYears)) ?? defaultFormValues.termYears;
         const savedPeriod = [5, 7, 10].includes(Number(parsed.armPeriod)) ? Number(parsed.armPeriod) as ArmPeriod : defaultFormValues.armPeriod;
-        setTermYears(savedTerm);
+        setAdvancedTermYears(savedTerm);
+        setAdvancedConfigured(parsed.advancedConfigured === true || parsed.loanType === 'arm' || ![15, 20, 30].includes(savedTerm));
+        const savedBasic = Number(parsed.basicTermYears ?? savedTerm);
+        setBasicTermYears([15, 20, 30].includes(savedBasic) ? savedBasic : 30);
         setArmPeriod(savedPeriod);
         setLoanType(parsed.loanType === 'arm' && savedTerm > savedPeriod ? 'arm' : 'fixed');
         if (typeof parsed.scenarioRate === 'string') setScenarioRate(parsed.scenarioRate);
@@ -147,8 +169,10 @@ export default function App() {
         homePrice,
         downPayment,
         interestRate,
-        termYears,
-        loanType,
+        termYears: advancedTermYears,
+        basicTermYears,
+        advancedConfigured,
+        loanType: advancedLoanType,
         armPeriod,
         scenarioRate,
         zip,
@@ -162,7 +186,7 @@ export default function App() {
     }, 250);
 
     return () => clearTimeout(timeout);
-  }, [homePrice, downPayment, interestRate, termYears, loanType, armPeriod, scenarioRate, zip, manualTaxRate, useManualTax, insuranceMonthly, hoaMonthly]);
+  }, [homePrice, downPayment, interestRate, advancedTermYears, basicTermYears, advancedConfigured, advancedLoanType, armPeriod, scenarioRate, zip, manualTaxRate, useManualTax, insuranceMonthly, hoaMonthly]);
 
   const results = useMemo(() => {
     const price = numberInput(homePrice);
@@ -182,18 +206,22 @@ export default function App() {
   }, [homePrice, downPayment, interestRate, termYears, zip, manualTaxRate, useManualTax, insuranceMonthly, hoaMonthly]);
 
   const piShare = results.totalMonthly > 0 ? `${Math.round((results.principalInterest / results.totalMonthly) * 100)}%` : '0%';
+  const usingAdvanced = advancedExpanded;
+  const scenario = loanType === 'arm' ? armScenario(results.loan, results.rate, termYears, armPeriod, scenarioRate) : null;
+  const otherMonthly = results.monthlyTax + results.insurance + results.hoa + results.pmi;
   const taxShare = results.totalMonthly > 0 ? `${Math.round((results.monthlyTax / results.totalMonthly) * 100)}%` : '0%';
   const { width, height } = useWindowDimensions();
   const isWideLayout = width >= 820 || (width > height && width >= 700);
+  const isCompactLandscape = width > height && height < 500;
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardView}>
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={[styles.container, isCompactLandscape && styles.containerLandscape]} keyboardShouldPersistTaps="handled">
           <View style={styles.heroGlow} />
-          <View style={styles.header}>
-            <Text style={styles.title}>LoanGlow</Text>
+          <View style={[styles.header, isCompactLandscape && styles.headerLandscape]}>
+            <Text style={[styles.title, isCompactLandscape && styles.titleLandscape]}>LoanGlow</Text>
             <Text style={styles.subtitle}>Loan mortgage calculator with smart, editable property tax previews. Estimates only.</Text>
           </View>
 
@@ -201,22 +229,24 @@ export default function App() {
             <View style={[styles.leftPane, isWideLayout && styles.leftPaneWide]}>
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Loan details</Text>
-                <View style={styles.gridCompact}>
+                <View testID="basic-inputs" style={styles.gridCompact}>
                   <InputCard label="Home price" value={homePrice} onChangeText={setHomePrice} suffix="$" />
                   <InputCard label="Down payment" value={downPayment} onChangeText={setDownPayment} suffix="$" />
-                  <InputCard label={loanType === 'arm' ? 'Initial interest rate' : 'Interest rate'} value={interestRate} onChangeText={setInterestRate} suffix="%" />
+                  {!usingAdvanced ? <InputCard label="Interest rate" value={interestRate} onChangeText={setInterestRate} suffix="%" /> : null}
                   <InputCard label="ZIP code" value={zip} onChangeText={setZip} keyboardType="number-pad" />
                   <InputCard label="Insurance" value={insuranceMonthly} onChangeText={setInsuranceMonthly} suffix="$ / mo" />
                   <InputCard label="HOA" value={hoaMonthly} onChangeText={setHoaMonthly} suffix="$ / mo" />
                 </View>
-                <AdvancedLoanOptions termYears={termYears} onTermChange={setTermYears} loanType={loanType} onTypeChange={setLoanType} armPeriod={armPeriod} onPeriodChange={setArmPeriod} scenarioRate={scenarioRate} onScenarioRateChange={setScenarioRate} loan={results.loan} initialRate={results.rate} />
+                <AdvancedLoanOptions termYears={termYears} onTermChange={setTermYears} loanType={loanType} onTypeChange={setLoanType} armPeriod={armPeriod} onPeriodChange={setArmPeriod} scenarioRate={scenarioRate} onScenarioRateChange={setScenarioRate} interestRate={interestRate} onInterestRateChange={setInterestRate} expanded={advancedExpanded} onExpandedChange={changeLoanMode} />
               </View>
             </View>
 
             <View style={[styles.rightPane, isWideLayout && styles.rightPaneWide]}>
-              <View style={[styles.summaryCard, isWideLayout && styles.summaryCardWide]}>
-                <Text style={styles.summaryLabel}>{loanType === 'arm' ? 'Initial estimated monthly payment' : 'Estimated monthly payment'}</Text>
-                <Text style={[styles.summaryAmount, isWideLayout && styles.summaryAmountWide]}>{currency(results.totalMonthly)}</Text>
+              <View testID="payment-summary" style={[styles.summaryCard, isWideLayout && styles.summaryCardWide]}>
+                <Text style={styles.summaryLabel}>Estimated monthly payment</Text>
+                {loanType === 'arm' ? <Text style={styles.paymentPhase}>First {armPeriod} years</Text> : null}
+                <Text testID="initial-total" style={[styles.summaryAmount, isWideLayout && styles.summaryAmountWide]}>{currency(results.totalMonthly)}</Text>
+                <Text style={styles.paymentIncluded}>Principal + interest, tax, insurance, PMI and HOA</Text>
                 <View style={styles.pillRow}>
                   <View style={styles.pill}><Text style={styles.pillText}>{currency(results.loan)} loan</Text></View>
                   <View style={styles.pill}><Text style={styles.pillText}>{results.rate.toFixed(2)}% {loanType === 'arm' ? 'initial rate' : 'interest'}</Text></View>
@@ -228,12 +258,28 @@ export default function App() {
                     <Text style={styles.armNoticeText}>Initial rate fixed for {armPeriod} years, then adjusts annually. Future payments may change; taxes and insurance can change at any time.</Text>
                   </View>
                 ) : null}
+                {loanType === 'arm' ? (
+                  <View style={styles.scenarioPanel}>
+                    <Text style={styles.scenarioHeading}>{scenario ? `Scenario · month ${scenario.month}` : 'After the first adjustment'}</Text>
+                    {scenario ? <>
+                      <Text testID="scenario-total" style={styles.scenarioAmount}>{currency(scenario.payment + otherMonthly)}</Text>
+                      <Text style={styles.paymentIncluded}>Total monthly at {Number(scenarioRate).toFixed(2)}% hypothetical interest</Text>
+                      <View style={styles.scenarioDetails}>
+                        <BreakdownRow label="Principal + interest" value={scenario.payment} color="#A78BFA" />
+                        <BreakdownRow label="Other monthly costs¹" value={otherMonthly} color="#34D399" />
+                      </View>
+                      <Text style={styles.armNoticeText}>{currency(scenario.balance)} remaining · {termYears - armPeriod} years left</Text>
+                      <Text style={styles.armNoticeText}>¹ Uses today's tax, insurance, PMI and HOA for comparison—not their future values. PMI may end; other costs can change.</Text>
+                    </> : <Text style={styles.armNoticeText}>{scenarioRate.trim() ? 'Enter a valid hypothetical rate from 0% to 100% in Advanced to compare payments.' : 'Future payment is unknown. Add a hypothetical rate in Advanced to compare totals here.'}</Text>}
+                    <Text style={styles.armNoticeText}>Not a forecast or maximum payment. Assumes scheduled payments only; lender index, margin, caps and later resets are not modeled.</Text>
+                  </View>
+                ) : null}
                 <View style={styles.barTrack}>
                   <View style={[styles.barSegment, styles.barPi, { flex: results.principalInterest || 1 }]} />
                   <View style={[styles.barSegment, styles.barTax, { flex: results.monthlyTax || 1 }]} />
                   <View style={[styles.barSegment, styles.barOther, { flex: results.insurance + results.hoa + results.pmi || 1 }]} />
                 </View>
-                <Text style={styles.shareText}>Payment mix: {piShare} principal/interest · {taxShare} tax</Text>
+                <Text style={styles.shareText}>{loanType === 'arm' ? 'Initial payment mix' : 'Payment mix'}: {piShare} principal/interest · {taxShare} tax</Text>
               </View>
 
               <TouchableOpacity onPress={() => setShowBreakdown(!showBreakdown)} style={styles.accordionHeader}>
@@ -311,6 +357,12 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  paymentPhase: { color: '#7DD3FC', fontSize: 13, fontWeight: '700', marginTop: 12 },
+  paymentIncluded: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  scenarioPanel: { backgroundColor: '#161E35', borderWidth: 1, borderColor: '#39416A', borderRadius: 18, padding: 16, marginTop: 16 },
+  scenarioHeading: { color: '#C4B5FD', fontSize: 13, fontWeight: '800' },
+  scenarioAmount: { color: '#F1EDFF', fontSize: 36, fontWeight: '900', marginTop: 6, letterSpacing: -1 },
+  scenarioDetails: { marginTop: 12 },
   armNotice: { borderTopWidth: 1, borderTopColor: '#263B53', marginTop: 14, paddingTop: 12 },
   armNoticeTitle: { color: '#7DD3FC', fontSize: 13, fontWeight: '800' },
   armNoticeText: { color: '#94A3B8', fontSize: 12, lineHeight: 18, marginTop: 4 },
@@ -319,17 +371,20 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#020617' },
   keyboardView: { flex: 1 },
   container: { padding: 16, paddingBottom: 32, maxWidth: 980, width: '100%', alignSelf: 'center' },
+  containerLandscape: { paddingTop: 8 },
   heroGlow: { position: 'absolute', top: -120, right: -80, width: 280, height: 280, borderRadius: 140, backgroundColor: '#2563EB', opacity: 0.28 },
   header: { marginTop: 12, marginBottom: 10 },
+  headerLandscape: { marginTop: 0, marginBottom: 6 },
   kicker: { color: '#67E8F9', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
   title: { color: '#F8FAFC', fontSize: 38, fontWeight: '900', letterSpacing: -1.3, marginTop: 4 },
+  titleLandscape: { fontSize: 32 },
   subtitle: { color: '#CBD5E1', fontSize: 14, lineHeight: 20, marginTop: 4, maxWidth: 620 },
-  mainLayout: { gap: 0 },
+  mainLayout: { width: '100%', gap: 0 },
   mainLayoutWide: { flexDirection: 'row', gap: 22, alignItems: 'flex-start' },
   leftPane: { width: '100%' },
   rightPane: { width: '100%' },
-  leftPaneWide: { flex: 1, maxWidth: 520 },
-  rightPaneWide: { flex: 1, maxWidth: 580, paddingTop: 14 },
+  leftPaneWide: { width: '48%', minWidth: 0, flexGrow: 1, flexShrink: 1, maxWidth: 520 },
+  rightPaneWide: { width: '48%', minWidth: 0, flexGrow: 1, flexShrink: 1, maxWidth: 580, paddingTop: 14 },
   summaryCard: { backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#1E293B', borderRadius: 24, padding: 18, marginTop: 14, boxShadow: '0px 14px 26px rgba(56, 189, 248, 0.24)' as never, elevation: 8 },
   summaryCardWide: { marginTop: 0, padding: 22 },
   summaryLabel: { color: '#94A3B8', fontSize: 15, fontWeight: '700' },
@@ -349,7 +404,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: '#E2E8F0', fontSize: 20, fontWeight: '900', marginBottom: 10 },
   grid: { gap: 12 },
   gridCompact: { gap: 8, flexDirection: 'row', flexWrap: 'wrap' },
-  inputCard: { backgroundColor: '#0B1220', borderWidth: 1, borderColor: '#1E293B', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 0, flexBasis: '48%', flexGrow: 1, minWidth: 150 },
+  inputCard: { backgroundColor: '#0B1220', borderWidth: 1, borderColor: '#1E293B', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 0, width: '48%', flexGrow: 1, minWidth: 150 },
   inputLabel: { color: '#94A3B8', fontSize: 11, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 },
   inputRow: { flexDirection: 'row', alignItems: 'center' },
   input: { flex: 1, minWidth: 0, color: '#F8FAFC', fontSize: 21, fontWeight: '900', paddingVertical: Platform.OS === 'web' ? 4 : 2, outlineStyle: 'none' as never },
